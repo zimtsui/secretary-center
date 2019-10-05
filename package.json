@@ -1,0 +1,25 @@
+{
+    "name": "secretary-center",
+    "version": "0.0.1",
+    "description": "",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1",
+        "build": "tsc -b"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/zimtsui/secretary-center.git"
+    },
+    "author": "Zim",
+    "license": "MIT",
+    "bugs": {
+        "url": "https://github.com/zimtsui/secretary-center/issues"
+    },
+    "homepage": "https://github.com/zimtsui/secretary-center#readme",
+    "devDependencies": {
+        "@types/node": "^12.7.11",
+        "typescript": "^3.6.3"
+    }
+}
