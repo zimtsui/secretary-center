@@ -1,4 +1,5 @@
 import Database from './database';
+import fse from 'fs-extra';
 import Autonomous from 'autonomous';
 import Koa from 'koa';
 import Filter from 'koa-ws-filter';
@@ -6,39 +7,43 @@ import { join } from 'path';
 import Router from 'koa-router';
 import WebSocket from 'ws';
 import { createServer } from 'http';
+import EventEmitter from 'events';
+import TtlQueue from 'ttl-queue';
 import {
     Trade,
-} from 'interfaces';
+    Config,
+    Assets,
+    TradingDataFromSecretaryToCenter as TDFSTC
+} from './interfaces';
 
-const DBPATH = join(__dirname, '../db/history.db');
+const config: Config = fse.readJsonSync(join(__dirname,
+    '../cfg/config.json'));
 
-interface Asset {
-    spot?: number;
-    long?: number;
-    short?: number;
-    cash?: number;
-    time?: number;
-};
+const DB_PATH = join(__dirname, '../', config.DB_RELATIVE_PATH);
 
-interface TradingDataFromSecretaryToCenter {
-    asset?: Asset;
-    trade?: Trade;
-};
-
-type TDFSTC = TradingDataFromSecretaryToCenter;
+type TradeWithName = Trade & {
+    name: string;
+}
 
 class SecretaryCenter extends Autonomous {
     private httpServer = createServer();
     private filter = new Filter();
     private koa = new Koa();
-    private db = new Database(DBPATH);
+    private wsRouter = new Router();
+    private httpRouter = new Router();
+    private db = new Database(DB_PATH);
+    private realTime = new EventEmitter();
+    private recentTrades = new TtlQueue<TradeWithName>(config.TRADE_TTL);
 
     constructor() {
         super();
         this.configureHttpServer();
         this.configureUpload();
+        this.configureWsDownload();
+        this.configureHttpDownload();
 
-
+        this.filter.ws(this.wsRouter.routes());
+        this.filter.http(this.httpRouter.routes());
         this.koa.use(this.filter.filter());
         this.httpServer.on('request', this.koa.callback());
     }
@@ -55,6 +60,10 @@ class SecretaryCenter extends Autonomous {
         );`).catch(err => {
             if (err.errno !== 1) throw err;
         });
+
+        return new Promise<void>(resolve =>
+            void this.httpServer.listen(config.PORT, resolve)
+        );
     }
 
     protected async _stop() {
@@ -67,39 +76,113 @@ class SecretaryCenter extends Autonomous {
     }
 
     private configureUpload(): void {
-        const router = new Router();
-        router.all('/:name', async (ctx, next) => {
+        this.wsRouter.all('/:name', async (ctx, next) => {
             const secretary: WebSocket = await ctx.upgrade();
             secretary.on('message', (message: string) => {
                 const data: TDFSTC = JSON.parse(message);
-                if (data.asset) this.handleAsset(
+                this.realTime.emit(ctx.params.name, data);
+                if (data.assets) this.handleAssets(
                     ctx.params.name,
-                    data.asset,
+                    data.assets,
+                );
+                if (data.trade) this.handleTrade(
+                    ctx.params.name,
+                    data.trade,
                 );
             });
         });
-        this.filter.ws(router.routes());
     }
 
-    private async remove(name: string): Promise<void> {
-        await this.db.sql(`
-            DELETE FROM assets
-            WHERE name = '%s'
-        ;`, name);
+    private configureWsDownload(): void {
+        this.wsRouter.all('/:name/assets', async (ctx, next) => {
+            const client: WebSocket = await ctx.upgrade();
+            function onData(data: TDFSTC) {
+                if (!data.assets) return;
+                const message = JSON.stringify(data.assets);
+                client.send(message, (err?: Error) => {
+                    if (err) console.error(err);
+                });
+            }
+            this.realTime.on(ctx.params.name, onData);
+            client.on('error', console.error);
+
+            //                  args
+            client.on('close', () => {
+                this.realTime.off(ctx.params.name, onData);
+            });
+        });
+
+        this.wsRouter.all('/:name/trades', async (ctx, next) => {
+            const client: WebSocket = await ctx.upgrade();
+            function onData(data: TDFSTC) {
+                if (!data.trade) return;
+                const message = JSON.stringify(data.trade);
+                client.send(message, (err?: Error) => {
+                    if (err) console.error(err);
+                });
+            }
+            this.realTime.on(ctx.params.name, onData);
+            client.on('error', console.error);
+
+            //                  args
+            client.on('close', () => {
+                this.realTime.off(ctx.params.name, onData);
+            });
+        });
     }
 
-    private async handleAsset(name: string, asset: Asset): Promise<void> {
+    private configureHttpDownload(): void {
+        this.httpRouter.get('/:name/assets', async (ctx, next) => {
+            const rows = await this.db.sql(`
+                SELECT spot, long, short, cash, time
+                FROM assets
+                WHERE name = '%s'
+                ORDER BY time
+            ;`, ctx.params.name);
+            ctx.body = rows;
+        });
+
+        this.httpRouter.get('/:name/trades', async (ctx, next) => {
+            const trades = [...this.recentTrades]
+                .filter(trade => trade.name === ctx.params.name)
+                .map(tradeWithName => {
+                    const trade = { ...tradeWithName };
+                    Reflect.deleteProperty(trade, 'name');
+                    return <Trade>trade;
+                });
+            ctx.body = trades;
+        });
+    }
+
+    // private async remove(name: string): Promise<void> {
+    //     await this.db.sql(`
+    //         DELETE FROM assets
+    //         WHERE name = '%s'
+    //     ;`, name);
+    // }
+
+    private async handleAssets(
+        name: string, assets: Assets
+    ): Promise<void> {
         await this.db.sql(`
             INSERT INTO assets
             (name, spot, long, short, cash, time)
             VALUES('%s', %d, %d, %d, %d, %d)
         ;`, name,
-            asset.spot || 0,
-            asset.long || 0,
-            asset.short || 0,
-            asset.cash || 0,
-            asset.time || 0,
+            assets.spot || 0,
+            assets.long || 0,
+            assets.short || 0,
+            assets.cash || 0,
+            assets.time || 0,
         );
+    }
+
+    private handleTrade(
+        name: string, trade: Trade
+    ): void {
+        this.recentTrades.push({
+            name, ...trade
+        });
     }
 }
 

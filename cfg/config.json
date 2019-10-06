@@ -1,0 +1,5 @@
+{
+    "PORT": 12002,
+    "TRADE_TTL": 60000,
+    "DB_RELATIVE_PATH": "./db/history.db"
+}
