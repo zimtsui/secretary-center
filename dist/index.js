@@ -64,6 +64,12 @@ class SecretaryCenter extends autonomous_1.default {
     _stop() {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.db.stop();
+            return new Promise((resolve, reject) => void this.httpServer.close(err => {
+                if (err)
+                    reject(err);
+                else
+                    resolve();
+            }));
         });
     }
     configureHttpServer() {
@@ -142,12 +148,6 @@ class SecretaryCenter extends autonomous_1.default {
             ctx.body = trades;
         }));
     }
-    // private async remove(name: string): Promise<void> {
-    //     await this.db.sql(`
-    //         DELETE FROM assets
-    //         WHERE name = '%s'
-    //     ;`, name);
-    // }
     handleAssets(name, assets) {
         return __awaiter(this, void 0, void 0, function* () {
             yield this.db.sql(`

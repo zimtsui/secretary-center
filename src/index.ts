@@ -68,6 +68,10 @@ class SecretaryCenter extends Autonomous {
 
     protected async _stop() {
         await this.db.stop();
+        return new Promise<void>((resolve, reject) =>
+            void this.httpServer.close(err => {
+                if (err) reject(err); else resolve();
+            }));
     }
 
     private configureHttpServer(): void {
@@ -153,13 +157,6 @@ class SecretaryCenter extends Autonomous {
             ctx.body = trades;
         });
     }
-
-    // private async remove(name: string): Promise<void> {
-    //     await this.db.sql(`
-    //         DELETE FROM assets
-    //         WHERE name = '%s'
-    //     ;`, name);
-    // }
 
     private async handleAssets(
         name: string, assets: Assets
