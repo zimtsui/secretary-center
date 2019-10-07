@@ -24,6 +24,7 @@ const events_1 = __importDefault(require("events"));
 const ttl_queue_1 = __importDefault(require("ttl-queue"));
 const config = fs_extra_1.default.readJsonSync(path_1.join(__dirname, '../cfg/config.json'));
 const DB_PATH = path_1.join(__dirname, '../', config.DB_RELATIVE_PATH);
+fs_extra_1.default.ensureDirSync(path_1.dirname(DB_PATH));
 class SecretaryCenter extends autonomous_1.default {
     constructor() {
         super();
@@ -49,7 +50,7 @@ class SecretaryCenter extends autonomous_1.default {
             yield this.db.start();
             yield this.db.sql(`CREATE TABLE assets(
             name    VARCHAR(255),
-            spot    VARCHAR(255),
+            spot    BIGINT,
             long    BIGINT,
             short   BIGINT,
             cash    BIGINT,
@@ -103,7 +104,6 @@ class SecretaryCenter extends autonomous_1.default {
             }
             this.realTime.on(ctx.params.name, onData);
             client.on('error', console.error);
-            //                  args
             client.on('close', () => {
                 this.realTime.off(ctx.params.name, onData);
             });
@@ -121,7 +121,6 @@ class SecretaryCenter extends autonomous_1.default {
             }
             this.realTime.on(ctx.params.name, onData);
             client.on('error', console.error);
-            //                  args
             client.on('close', () => {
                 this.realTime.off(ctx.params.name, onData);
             });
@@ -139,12 +138,8 @@ class SecretaryCenter extends autonomous_1.default {
         }));
         this.httpRouter.get('/:name/trades', (ctx, next) => __awaiter(this, void 0, void 0, function* () {
             const trades = [...this.recentTrades]
-                .filter(trade => trade.name === ctx.params.name)
-                .map(tradeWithName => {
-                const trade = Object.assign({}, tradeWithName);
-                Reflect.deleteProperty(trade, 'name');
-                return trade;
-            });
+                .filter(tradeAndName => tradeAndName.name === ctx.params.name)
+                .map(tradeAndName => tradeAndName.trade);
             ctx.body = trades;
         }));
     }
@@ -158,7 +153,9 @@ class SecretaryCenter extends autonomous_1.default {
         });
     }
     handleTrade(name, trade) {
-        this.recentTrades.push(Object.assign({ name }, trade));
+        this.recentTrades.push({
+            name, trade,
+        });
     }
 }
 exports.default = SecretaryCenter;

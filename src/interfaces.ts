@@ -2,6 +2,7 @@ import {
     Trade,
     Assets,
     TradingDataFromSecretaryToCenter,
+    Action,
 } from 'interfaces';
 
 interface Config {
@@ -11,6 +12,7 @@ interface Config {
 };
 
 export {
+    Action,
     Config,
     Trade,
     Assets,

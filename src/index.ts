@@ -3,7 +3,7 @@ import fse from 'fs-extra';
 import Autonomous from 'autonomous';
 import Koa from 'koa';
 import Filter from 'koa-ws-filter';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import Router from 'koa-router';
 import WebSocket from 'ws';
 import { createServer } from 'http';
@@ -20,9 +20,11 @@ const config: Config = fse.readJsonSync(join(__dirname,
     '../cfg/config.json'));
 
 const DB_PATH = join(__dirname, '../', config.DB_RELATIVE_PATH);
+fse.ensureDirSync(dirname(DB_PATH));
 
-type TradeWithName = Trade & {
+interface TradeAndName {
     name: string;
+    trade: Trade;
 }
 
 class SecretaryCenter extends Autonomous {
@@ -33,7 +35,7 @@ class SecretaryCenter extends Autonomous {
     private httpRouter = new Router();
     private db = new Database(DB_PATH);
     private realTime = new EventEmitter();
-    private recentTrades = new TtlQueue<TradeWithName>(config.TRADE_TTL);
+    private recentTrades = new TtlQueue<TradeAndName>(config.TRADE_TTL);
 
     constructor() {
         super();
@@ -52,7 +54,7 @@ class SecretaryCenter extends Autonomous {
         await this.db.start();
         await this.db.sql(`CREATE TABLE assets(
             name    VARCHAR(255),
-            spot    VARCHAR(255),
+            spot    BIGINT,
             long    BIGINT,
             short   BIGINT,
             cash    BIGINT,
@@ -110,7 +112,6 @@ class SecretaryCenter extends Autonomous {
             this.realTime.on(ctx.params.name, onData);
             client.on('error', console.error);
 
-            //                  args
             client.on('close', () => {
                 this.realTime.off(ctx.params.name, onData);
             });
@@ -128,7 +129,6 @@ class SecretaryCenter extends Autonomous {
             this.realTime.on(ctx.params.name, onData);
             client.on('error', console.error);
 
-            //                  args
             client.on('close', () => {
                 this.realTime.off(ctx.params.name, onData);
             });
@@ -148,12 +148,8 @@ class SecretaryCenter extends Autonomous {
 
         this.httpRouter.get('/:name/trades', async (ctx, next) => {
             const trades = [...this.recentTrades]
-                .filter(trade => trade.name === ctx.params.name)
-                .map(tradeWithName => {
-                    const trade = { ...tradeWithName };
-                    Reflect.deleteProperty(trade, 'name');
-                    return <Trade>trade;
-                });
+                .filter(tradeAndName => tradeAndName.name === ctx.params.name)
+                .map(tradeAndName => tradeAndName.trade);
             ctx.body = trades;
         });
     }
@@ -178,7 +174,7 @@ class SecretaryCenter extends Autonomous {
         name: string, trade: Trade
     ): void {
         this.recentTrades.push({
-            name, ...trade
+            name, trade,
         });
     }
 }
